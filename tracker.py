@@ -435,6 +435,67 @@ def cmd_budget_remove(args):
     print(f"Budget for {args.category} removed")
 
 
+def cmd_edit(args):
+    fields = (args.amount, args.date, args.account, args.category, args.note, args.type)
+    if all(f is None for f in fields):
+        sys.exit("Nothing to change: pass at least one of "
+                 "--amount, --date, --account, --category, --note")
+    if args.type and args.category is None:
+        sys.exit("--type can only be used together with --category")
+    for label, value in (("account", args.account), ("category", args.category)):
+        if value is not None and not value.strip():
+            sys.exit(f"The {label} name cannot be empty")
+
+    with connect() as conn:
+        cur = conn.execute(
+            "SELECT t.id, t.date, t.amount, t.note, t.account_id, t.category_id, "
+            "c.type AS type FROM transactions t "
+            "JOIN categories c ON c.id = t.category_id WHERE t.id = ?",
+            (args.id,),
+        ).fetchone()
+        if not cur:
+            sys.exit(f"Transaction {args.id} not found")
+
+        amount = parse_amount(args.amount) if args.amount is not None else cur["amount"]
+        day = parse_date(args.date) if args.date is not None else cur["date"]
+        note = (args.note.strip() or None) if args.note is not None else cur["note"]
+
+        account_id = cur["account_id"]
+        if args.account is not None:
+            account_id = get_or_create_account(conn, args.account.strip(), args.currency)
+
+        category_id = cur["category_id"]
+        if args.category is not None:
+            name = args.category.strip()
+            row = conn.execute(
+                "SELECT id, type FROM categories WHERE name = ?", (name,)
+            ).fetchone()
+            if row:
+                if args.type and row["type"] != args.type:
+                    sys.exit(f"Category '{name}' already exists with type {row['type']}")
+                category_id = row["id"]
+            else:  # a new category inherits the current type unless --type is given
+                category_id = get_or_create_category(conn, name, args.type or cur["type"])
+
+        conn.execute(
+            "UPDATE transactions SET date = ?, amount = ?, account_id = ?, "
+            "category_id = ?, note = ? WHERE id = ?",
+            (day, amount, account_id, category_id, note, args.id),
+        )
+        new = conn.execute(
+            "SELECT a.name AS account, c.name AS category, c.type AS type "
+            "FROM accounts a, categories c WHERE a.id = ? AND c.id = ?",
+            (account_id, category_id),
+        ).fetchone()
+        warning = (budget_warning(conn, category_id, day[:7], new["category"])
+                   if new["type"] == "expense" else None)
+
+    print(f"Updated {args.id}: {day} {new['type']} {fmt_money(amount)} "
+          f"[{new['account']} / {new['category']}] {note or ''}".rstrip())
+    if warning:
+        print(warning)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Personal finance tracker")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -504,6 +565,18 @@ def main():
     p_bremove = budget_sub.add_parser("remove", help="remove a budget")
     p_bremove.add_argument("category")
     p_bremove.set_defaults(func=cmd_budget_remove)
+
+    p_edit = sub.add_parser("edit", help="change fields of an existing transaction")
+    p_edit.add_argument("id", type=int)
+    p_edit.add_argument("--amount", help="new amount, e.g. 15.00")
+    p_edit.add_argument("-d", "--date", help="new date, YYYY-MM-DD")
+    p_edit.add_argument("-a", "--account", help="move to this account")
+    p_edit.add_argument("-c", "--category", help="move to this category")
+    p_edit.add_argument("-t", "--type", choices=["income", "expense"],
+                        help="type for a new category (use with --category)")
+    p_edit.add_argument("-n", "--note", help='new note ("" clears it)')
+    p_edit.add_argument("--currency", default="USD", help="currency for a new account")
+    p_edit.set_defaults(func=cmd_edit)
 
     args = parser.parse_args()
     try:

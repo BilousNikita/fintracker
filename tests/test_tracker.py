@@ -398,3 +398,74 @@ def test_budget_update_and_remove(cli):
     with pytest.raises(SystemExit) as exc:
         cli("budget", "remove", "Food")
     assert "No budget set" in str(exc.value.code)
+
+
+# ---------- edit ----------
+
+def test_edit_amount_and_note(cli):
+    seed(cli)
+    out = cli("edit", "2", "--amount", "15", "-n", "dinner")
+    assert "Updated 2:" in out and "15.00" in out
+    listing = cli("list")
+    assert "dinner" in listing
+    assert "lunch" not in listing
+    assert "-15.00" in listing
+
+
+def test_edit_clear_note(cli):
+    seed(cli)
+    cli("edit", "2", "-n", "")
+    assert "lunch" not in cli("list")
+
+
+def test_edit_date_and_account(cli):
+    seed(cli)
+    cli("edit", "2", "-d", "2026-10-31", "-a", "Bank")
+    assert "lunch" in cli("list", "-m", "2026-10")
+    assert "+2822.50" in cli("balance")   # Bank: 3000 - 45 - 120 - 12.50
+
+
+def test_edit_new_category_keeps_type(cli):
+    seed(cli)
+    cli("edit", "2", "-c", "Restaurants")
+    out = cli("report", "-m", "2026-11")
+    assert "Restaurants" in out
+    assert "Food" not in out
+
+
+def test_edit_to_existing_category_of_other_type(cli):
+    seed(cli)
+    cli("edit", "2", "-c", "Salary")      # now counts as income
+    assert "Total: +2847.50" in cli("list")   # 3000 + 12.50 - 45 - 120
+
+
+def test_edit_errors_change_nothing(cli):
+    seed(cli)
+    with pytest.raises(SystemExit) as exc:
+        cli("edit", "2")
+    assert "Nothing to change" in str(exc.value.code)
+
+    with pytest.raises(SystemExit) as exc:
+        cli("edit", "999", "--amount", "1")
+    assert "not found" in str(exc.value.code)
+
+    with pytest.raises(SystemExit) as exc:
+        cli("edit", "2", "--amount", "abc")
+    assert "Error" in str(exc.value.code)
+
+    with pytest.raises(SystemExit) as exc:
+        cli("edit", "2", "-c", "Salary", "-t", "expense")
+    assert "already exists" in str(exc.value.code)
+
+    with pytest.raises(SystemExit) as exc:
+        cli("edit", "2", "-t", "income")
+    assert "--category" in str(exc.value.code)
+
+    assert "lunch" in cli("list")         # transaction 2 is untouched
+
+
+def test_edit_warns_about_budget(cli):
+    seed(cli)
+    cli("budget", "set", "Food", "20")
+    out = cli("edit", "3", "-c", "Food")   # moves 45.00 into Food
+    assert "Warning: Food budget exceeded" in out

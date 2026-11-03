@@ -78,6 +78,19 @@ python tracker.py budget remove Food
 `add` prints a warning when an expense brings its category to 80% of the
 monthly limit, or past it.
 
+### Edit a transaction
+
+```bash
+python tracker.py edit 3 --amount 15.00
+python tracker.py edit 3 -d 2026-10-31 -a Bank
+python tracker.py edit 3 -c Restaurants -n "dinner with friends"
+python tracker.py edit 3 -n ""            # clear the note
+```
+
+Only the fields you pass are changed. A new category inherits the
+transaction's current type unless you pass `--type`; moving a transaction
+to an existing category of the other type changes it between income and expense.
+
 ### Delete a transaction
 
 ```bash
@@ -142,7 +155,6 @@ fintracker/
 
 ## Roadmap
 
-- `edit` command for existing transactions
 - Installable package with `pyproject.toml`
 
 ## Running tests
