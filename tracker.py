@@ -3,6 +3,7 @@
 import argparse
 import sqlite3
 import sys
+import csv
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -19,23 +20,22 @@ def connect():
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
-
 def parse_amount(text):
     """Convert '12.50' to 1250 (cents). Positive only, max 2 decimal places."""
     try:
-        d = Decimal(text.replace(",", "."))
+        d = Decimal(text.strip().replace(",", "."))
     except InvalidOperation:
-        sys.exit(f"Invalid amount: {text}")
-    if d <= 0 or d.as_tuple().exponent < -2:
-        sys.exit("Amount must be > 0 with at most 2 decimal places")
+        raise ValueError(f"Invalid amount: {text}")
+    if not d.is_finite() or d <= 0 or d.as_tuple().exponent < -2:
+        raise ValueError("Amount must be > 0 with at most 2 decimal places")
     return int(d * 100)
 
 
 def parse_date(text):
     try:
-        return datetime.strptime(text, "%Y-%m-%d").date().isoformat()
+        return datetime.strptime(text.strip(), "%Y-%m-%d").date().isoformat()
     except ValueError:
-        sys.exit(f"Date must be in YYYY-MM-DD format: {text}")
+        raise ValueError(f"Date must be in YYYY-MM-DD format: {text}")
 
 
 def fmt_money(cents):
@@ -178,6 +178,87 @@ def cmd_report(args):
     print(f"Net:      {fmt_signed(income - expenses):>10}")
 
 
+REQUIRED_COLUMNS = {"date", "amount", "account", "category"}
+
+
+def cmd_delete(args):
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT t.id, t.date, t.amount, t.note, a.name AS account, "
+            "c.name AS category, c.type AS type "
+            "FROM transactions t "
+            "JOIN accounts a ON a.id = t.account_id "
+            "JOIN categories c ON c.id = t.category_id "
+            "WHERE t.id = ?",
+            (args.id,),
+        ).fetchone()
+        if not row:
+            sys.exit(f"Transaction {args.id} not found")
+
+        print(f"{row['id']}: {row['date']} {row['type']} {fmt_money(row['amount'])} "
+              f"[{row['account']} / {row['category']}] {row['note'] or ''}")
+        if not args.yes:
+            answer = input("Delete this transaction? [y/N] ").strip().lower()
+            if answer != "y":
+                print("Cancelled.")
+                return
+        conn.execute("DELETE FROM transactions WHERE id = ?", (args.id,))
+    print("Deleted.")
+
+
+def cmd_import(args):
+    path = Path(args.file)
+    if not path.is_file():
+        sys.exit(f"File not found: {path}")
+
+    records, errors = [], []
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        missing = REQUIRED_COLUMNS - set(reader.fieldnames or [])
+        if missing:
+            sys.exit(f"Missing columns: {', '.join(sorted(missing))}")
+        for line_no, rec in enumerate(reader, start=2):  # line 1 is the header
+            try:
+                kind = (rec.get("type") or "expense").strip().lower()
+                if kind not in ("income", "expense"):
+                    raise ValueError(f"Invalid type: {kind}")
+                account = (rec["account"] or "").strip()
+                category = (rec["category"] or "").strip()
+                if not account or not category:
+                    raise ValueError("Account and category are required")
+                records.append({
+                    "date": parse_date(rec["date"] or ""),
+                    "amount": parse_amount(rec["amount"] or ""),
+                    "account": account,
+                    "category": category,
+                    "type": kind,
+                    "currency": (rec.get("currency") or "USD").strip(),
+                    "note": (rec.get("note") or "").strip() or None,
+                })
+            except ValueError as e:
+                errors.append(f"line {line_no}: {e}")
+
+    if errors:
+        print("Import aborted, nothing was saved. Fix these rows:")
+        for e in errors:
+            print(f"  {e}")
+        sys.exit(1)
+    if args.dry_run:
+        print(f"Dry run OK: {len(records)} transactions would be imported.")
+        return
+
+    with connect() as conn:  # one transaction: all rows or none
+        for r in records:
+            account_id = get_or_create_account(conn, r["account"], r["currency"])
+            category_id = get_or_create_category(conn, r["category"], r["type"])
+            conn.execute(
+                "INSERT INTO transactions (date, amount, account_id, category_id, note) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (r["date"], r["amount"], account_id, category_id, r["note"]),
+            )
+    print(f"Imported {len(records)} transactions from {path.name}.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Personal finance tracker")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -208,8 +289,24 @@ def main():
     p_report.add_argument("-m", "--month", help="YYYY-MM (default: current month)")
     p_report.set_defaults(func=cmd_report)
 
+
+    p_delete = sub.add_parser("delete", help="delete a transaction by ID")
+    p_delete.add_argument("id", type=int)
+    p_delete.add_argument("-y", "--yes", action="store_true", help="skip confirmation")
+    p_delete.set_defaults(func=cmd_delete)
+
+    p_import = sub.add_parser("import", help="import transactions from a CSV file")
+    p_import.add_argument("file")
+    p_import.add_argument("--dry-run", action="store_true",
+                          help="validate the file without saving anything")
+    p_import.set_defaults(func=cmd_import)
+
+
     args = parser.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except ValueError as e:
+        sys.exit(f"Error: {e}")
 
 
 if __name__ == "__main__":
