@@ -25,19 +25,22 @@ git clone git@github.com:BilousNikita/fintracker.git
 cd fintracker
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -e .
 ```
 
-The database file `fintracker.db` is created automatically on first run
-from `schema.sql`.
+By default the database lives at `~/.local/share/fintracker/fintracker.db`
+(respects `$XDG_DATA_HOME`). Override it with the `FINTRACKER_DB` environment
+variable or the global `--db PATH` option. It is created automatically on
+first run.
 
 ## Usage
 
 ### Add a transaction
 
 ```bash
-python tracker.py add 3000 -a Bank -c Salary -t income
-python tracker.py add 12.50 -a Cash -c Food -n "lunch"
-python tracker.py add 45 -a Bank -c Transport -d 2026-11-01
+fintracker add 3000 -a Bank -c Salary -t income
+fintracker add 12.50 -a Cash -c Food -n "lunch"
+fintracker add 45 -a Bank -c Transport -d 2026-11-01
 ```
 
 | Option | Description |
@@ -52,8 +55,8 @@ python tracker.py add 45 -a Bank -c Transport -d 2026-11-01
 ### List transactions
 
 ```bash
-python tracker.py list
-python tracker.py list -m 2026-11 -c Food
+fintracker list
+fintracker list -m 2026-11 -c Food
 ```
 
 Filters: `-m/--month`, `-c/--category`, `-a/--account`, `-l/--limit`.
@@ -61,18 +64,18 @@ Filters: `-m/--month`, `-c/--category`, `-a/--account`, `-l/--limit`.
 ### Balance and report
 
 ```bash
-python tracker.py balance
-python tracker.py report
-python tracker.py report -m 2026-10
+fintracker balance
+fintracker report
+fintracker report -m 2026-10
 ```
 
 ### Budgets
 
 ```bash
-python tracker.py budget set Food 300      # monthly limit for an expense category
-python tracker.py budget status            # current month
-python tracker.py budget status -m 2026-10
-python tracker.py budget remove Food
+fintracker budget set Food 300      # monthly limit for an expense category
+fintracker budget status            # current month
+fintracker budget status -m 2026-10
+fintracker budget remove Food
 ```
 
 `add` prints a warning when an expense brings its category to 80% of the
@@ -81,10 +84,10 @@ monthly limit, or past it.
 ### Edit a transaction
 
 ```bash
-python tracker.py edit 3 --amount 15.00
-python tracker.py edit 3 -d 2026-10-31 -a Bank
-python tracker.py edit 3 -c Restaurants -n "dinner with friends"
-python tracker.py edit 3 -n ""            # clear the note
+fintracker edit 3 --amount 15.00
+fintracker edit 3 -d 2026-10-31 -a Bank
+fintracker edit 3 -c Restaurants -n "dinner with friends"
+fintracker edit 3 -n ""            # clear the note
 ```
 
 Only the fields you pass are changed. A new category inherits the
@@ -94,15 +97,15 @@ to an existing category of the other type changes it between income and expense.
 ### Delete a transaction
 
 ```bash
-python tracker.py delete 3        # asks for confirmation
-python tracker.py delete 3 -y     # no confirmation
+fintracker delete 3        # asks for confirmation
+fintracker delete 3 -y     # no confirmation
 ```
 
 ### Import from CSV
 
 ```bash
-python tracker.py import transactions.csv --dry-run   # validate only
-python tracker.py import transactions.csv
+fintracker import transactions.csv --dry-run   # validate only
+fintracker import transactions.csv
 ```
 
 Required columns: `date`, `amount`, `account`, `category`.
@@ -120,9 +123,9 @@ reported. Rows identical to existing transactions (same date, amount, account, c
 ### Export to CSV
 
 ```bash
-python tracker.py export backup.csv
-python tracker.py export report.csv -m 2026-11 -c Food
-python tracker.py export -            # print to stdout
+fintracker export backup.csv
+fintracker export report.csv -m 2026-11 -c Food
+fintracker export -            # print to stdout
 ```
 
 The file uses the same columns as the import format, so it can be imported
@@ -148,19 +151,24 @@ financial data is never committed.
 
 ```
 fintracker/
-├── tracker.py    # CLI
-├── schema.sql    # database schema
+├── fintracker/
+│   ├── cli.py        # CLI
+│   ├── schema.sql    # database schema
+│   └── __main__.py
+├── tests/
+├── pyproject.toml
 └── README.md
 ```
 
 ## Roadmap
 
-- Installable package with `pyproject.toml`
+- `accounts` and `categories` listing commands
+- Automatic database backups
 
 ## Running tests
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -e . -r requirements-dev.txt
 pytest
 ```
 

@@ -2,13 +2,13 @@ import sys
 
 import pytest
 
-import tracker
+from fintracker import cli as tracker
 
 
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path, monkeypatch):
     """Every test gets its own empty database."""
-    monkeypatch.setattr(tracker, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setenv("FINTRACKER_DB", str(tmp_path / "test.db"))
 
 
 @pytest.fixture
@@ -469,3 +469,40 @@ def test_edit_warns_about_budget(cli):
     cli("budget", "set", "Food", "20")
     out = cli("edit", "3", "-c", "Food")   # moves 45.00 into Food
     assert "Warning: Food budget exceeded" in out
+
+
+# ---------- packaging ----------
+
+def test_db_path_defaults(monkeypatch, tmp_path):
+    monkeypatch.delenv("FINTRACKER_DB", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert tracker.db_path() == tmp_path / "fintracker" / "fintracker.db"
+
+
+def test_db_path_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("FINTRACKER_DB", str(tmp_path / "x.db"))
+    assert tracker.db_path() == tmp_path / "x.db"
+
+
+def test_connect_creates_missing_directory(monkeypatch, tmp_path):
+    target = tmp_path / "nested" / "dir" / "f.db"
+    monkeypatch.setenv("FINTRACKER_DB", str(target))
+    tracker.connect().close()
+    assert target.exists()
+
+
+def test_schema_is_packaged():
+    assert "CREATE TABLE IF NOT EXISTS transactions" in tracker.read_schema()
+
+
+def test_db_option(cli, tmp_path):
+    other = tmp_path / "other.db"
+    cli("--db", str(other), "add", "5", "-a", "Cash", "-c", "Food")
+    assert other.exists()
+
+
+def test_version(cli, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli("--version")
+    assert exc.value.code == 0
+    assert "fintracker 0.1.0" in capsys.readouterr().out

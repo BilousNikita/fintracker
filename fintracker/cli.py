@@ -1,24 +1,40 @@
 #!/usr/bin/env python3
 """Simple personal finance tracker: add and list commands."""
 import argparse
+import os
 import sqlite3
 import sys
 import csv
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from importlib import resources
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
-DB_PATH = BASE / "fintracker.db"
-SCHEMA_PATH = BASE / "schema.sql"
+from fintracker import __version__
+
+
+def db_path():
+    """Database location: $FINTRACKER_DB, else ~/.local/share/fintracker/."""
+    env = os.environ.get("FINTRACKER_DB")
+    if env:
+        return Path(env).expanduser()
+    base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return base / "fintracker" / "fintracker.db"
+
+
+def read_schema():
+    return resources.files("fintracker").joinpath("schema.sql").read_text(encoding="utf-8")
 
 
 def connect():
-    conn = sqlite3.connect(DB_PATH)
+    path = db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA_PATH.read_text())  # creates tables if missing
+    conn.executescript(read_schema())  # creates tables if missing
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
 
 def parse_amount(text):
     """Convert '12.50' to 1250 (cents). Positive only, max 2 decimal places."""
@@ -497,7 +513,12 @@ def cmd_edit(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Personal finance tracker")
+    parser = argparse.ArgumentParser(prog="fintracker",
+                                     description="Personal finance tracker")
+    parser.add_argument("--version", action="version",
+                        version=f"fintracker {__version__}")
+    parser.add_argument("--db", metavar="PATH",
+                        help="database file (default: $FINTRACKER_DB or ~/.local/share/fintracker/fintracker.db)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_add = sub.add_parser("add", help="add a transaction")
@@ -579,6 +600,8 @@ def main():
     p_edit.set_defaults(func=cmd_edit)
 
     args = parser.parse_args()
+    if args.db:
+        os.environ["FINTRACKER_DB"] = args.db
     try:
         args.func(args)
     except ValueError as e:
