@@ -512,6 +512,18 @@ def cmd_edit(args):
         print(warning)
 
 
+def cmd_web(args):
+    try:
+        from fintracker.web import create_app
+    except ModuleNotFoundError as e:
+        if e.name != "flask":
+            raise
+        sys.exit('The web interface needs Flask. Install it with: pip install "fintracker[web]"')
+    app = create_app()
+    print(f"fintracker is running at http://127.0.0.1:{args.port}  (Ctrl+C to stop)")
+    app.run(host="127.0.0.1", port=args.port)
+
+
 def main():
     parser = argparse.ArgumentParser(prog="fintracker",
                                      description="Personal finance tracker")
@@ -598,6 +610,10 @@ def main():
     p_edit.add_argument("-n", "--note", help='new note ("" clears it)')
     p_edit.add_argument("--currency", default="USD", help="currency for a new account")
     p_edit.set_defaults(func=cmd_edit)
+
+    p_web = sub.add_parser("web", help="start the local web interface")
+    p_web.add_argument("--port", type=int, default=5000)
+    p_web.set_defaults(func=cmd_web)
 
     args = parser.parse_args()
     if args.db:

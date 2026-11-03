@@ -12,6 +12,9 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = []
 
+[project.optional-dependencies]
+web = ["flask>=3.0"]
+
 [project.urls]
 Homepage = "https://github.com/BilousNikita/fintracker"
 

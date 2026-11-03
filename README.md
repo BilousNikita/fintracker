@@ -12,6 +12,7 @@ Data is stored locally in a SQLite database, with no external dependencies.
 - Monthly report with expenses by category
 - Delete transactions
 - Import transactions from CSV (validated first, all-or-nothing)
+- Local web interface (optional): dashboard, transactions, budgets
 
 ## Requirements
 
@@ -132,6 +133,20 @@ The file uses the same columns as the import format, so it can be imported
 back (duplicates are skipped). An existing file is not overwritten unless you
 pass `--force`.
 
+## Web interface
+
+A small local web UI (dashboard, transactions, budgets) is included.
+It needs Flask, which is an optional dependency:
+
+```bash
+pip install -e ".[web]"
+fintracker web              # http://127.0.0.1:5000
+fintracker web --port 8080
+```
+
+The server listens on `127.0.0.1` only, rejects requests for other hosts and
+protects every form with a CSRF token. It uses the same database as the CLI.
+
 ## Data model
 
 - `accounts` (id, name, currency)
@@ -153,6 +168,7 @@ financial data is never committed.
 fintracker/
 ├── fintracker/
 │   ├── cli.py        # CLI
+│   ├── web.py        # optional local web UI
 │   ├── schema.sql    # database schema
 │   └── __main__.py
 ├── tests/
