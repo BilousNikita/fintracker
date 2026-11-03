@@ -1,4 +1,5 @@
 # fintracker
+![Tests](https://github.com/BilousNikita/fintracker/actions/workflows/tests.yml/badge.svg)
 
 A small command-line personal finance tracker written in Python.
 Data is stored locally in a SQLite database, with no external dependencies.
@@ -14,7 +15,7 @@ Data is stored locally in a SQLite database, with no external dependencies.
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - No third-party packages (uses only the standard library)
 
 ## Setup
@@ -120,3 +121,13 @@ fintracker/
 - Budgets and category limits
 - Duplicate detection on import
 - Export to CSV
+
+## Running tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Tests use a temporary database, so your real data is never touched.
+Continuous integration runs the suite on Python 3.10, 3.12 and 3.14.
