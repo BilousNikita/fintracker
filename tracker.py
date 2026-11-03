@@ -42,6 +42,12 @@ def fmt_money(cents):
     return f"{cents // 100}.{cents % 100:02d}"
 
 
+def fmt_signed(cents):
+    """Format cents with an explicit sign, e.g. -1250 -> '-12.50'."""
+    sign = "-" if cents < 0 else "+"
+    return f"{sign}{fmt_money(abs(cents))}"
+
+
 def get_or_create_account(conn, name, currency):
     row = conn.execute("SELECT id FROM accounts WHERE name = ?", (name,)).fetchone()
     if row:
@@ -120,6 +126,58 @@ def cmd_list(args):
     print(f"\nTotal: {sign}{fmt_money(abs(total))}")
 
 
+def cmd_balance(args):
+    query = (
+        "SELECT a.name, a.currency, "
+        "COALESCE(SUM(CASE WHEN c.type = 'income' THEN t.amount "
+        "                  ELSE -t.amount END), 0) AS balance "
+        "FROM accounts a "
+        "LEFT JOIN transactions t ON t.account_id = a.id "
+        "LEFT JOIN categories c ON c.id = t.category_id "
+        "GROUP BY a.id ORDER BY a.name"
+    )
+    with connect() as conn:
+        rows = conn.execute(query).fetchall()
+
+    if not rows:
+        print("No accounts yet.")
+        return
+
+    print(f"{'Account':<14} {'Balance':>12}  Currency")
+    for r in rows:
+        print(f"{r['name']:<14} {fmt_signed(r['balance']):>12}  {r['currency']}")
+
+
+def cmd_report(args):
+    month = args.month or date.today().strftime("%Y-%m")
+    query = (
+        "SELECT c.name, c.type, SUM(t.amount) AS total "
+        "FROM transactions t JOIN categories c ON c.id = t.category_id "
+        "WHERE substr(t.date, 1, 7) = ? "
+        "GROUP BY c.id ORDER BY total DESC"
+    )
+    with connect() as conn:
+        rows = conn.execute(query, (month,)).fetchall()
+
+    if not rows:
+        print(f"No transactions for {month}.")
+        return
+
+    income = sum(r["total"] for r in rows if r["type"] == "income")
+    expenses = sum(r["total"] for r in rows if r["type"] == "expense")
+
+    print(f"Report for {month}\n")
+    print("Expenses by category:")
+    for r in rows:
+        if r["type"] != "expense":
+            continue
+        percent = r["total"] * 100 // expenses if expenses else 0
+        print(f"  {r['name']:<16} {fmt_money(r['total']):>10}  {percent:>3}%")
+    print(f"\nIncome:   {fmt_money(income):>10}")
+    print(f"Expenses: {fmt_money(expenses):>10}")
+    print(f"Net:      {fmt_signed(income - expenses):>10}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Personal finance tracker")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -141,6 +199,14 @@ def main():
     p_list.add_argument("-a", "--account")
     p_list.add_argument("-l", "--limit", type=int, default=50)
     p_list.set_defaults(func=cmd_list)
+
+
+    p_balance = sub.add_parser("balance", help="show balance per account")
+    p_balance.set_defaults(func=cmd_balance)
+
+    p_report = sub.add_parser("report", help="monthly report by category")
+    p_report.add_argument("-m", "--month", help="YYYY-MM (default: current month)")
+    p_report.set_defaults(func=cmd_report)
 
     args = parser.parse_args()
     args.func(args)
