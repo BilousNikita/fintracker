@@ -505,4 +505,4 @@ def test_version(cli, capsys):
     with pytest.raises(SystemExit) as exc:
         cli("--version")
     assert exc.value.code == 0
-    assert "fintracker 0.1.0" in capsys.readouterr().out
+    assert f"fintracker {tracker.__version__}" in capsys.readouterr().out
