@@ -92,6 +92,18 @@ date,amount,account,category,type,note
 If any row is invalid, nothing is imported and the offending lines are
 reported. Rows identical to existing transactions (same date, amount, account, category and note) are skipped, so re-importing a file is safe. Use `--allow-duplicates` to disable this.
 
+### Export to CSV
+
+```bash
+python tracker.py export backup.csv
+python tracker.py export report.csv -m 2026-11 -c Food
+python tracker.py export -            # print to stdout
+```
+
+The file uses the same columns as the import format, so it can be imported
+back (duplicates are skipped). An existing file is not overwritten unless you
+pass `--force`.
+
 ## Data model
 
 - `accounts` (id, name, currency)
@@ -119,7 +131,6 @@ fintracker/
 
 - Tests with pytest
 - Budgets and category limits
-- Export to CSV
 
 ## Running tests
 

@@ -304,3 +304,41 @@ def test_dry_run_reports_duplicates(cli, tmp_path):
     out = cli("import", path, "--dry-run")
     assert "Dry run OK: 0 transactions" in out
     assert "3 duplicates would be skipped" in out
+
+
+# ---------- export ----------
+
+def test_export_to_stdout(cli):
+    seed(cli)
+    lines = cli("export", "-").strip().splitlines()
+    assert lines[0] == "date,amount,account,category,type,currency,note"
+    assert "2026-11-02,12.50,Cash,Food,expense,USD,lunch" in lines
+    assert len(lines) == 5   # header + 4 transactions
+
+
+def test_export_filters(cli):
+    seed(cli)
+    out = cli("export", "-", "-c", "Food")
+    assert "lunch" in out
+    assert "bus" not in out
+
+
+def test_export_file_and_overwrite_protection(cli, tmp_path):
+    seed(cli)
+    target = tmp_path / "out.csv"
+    assert "Exported 4 transactions" in cli("export", str(target))
+    with pytest.raises(SystemExit) as exc:
+        cli("export", str(target))
+    assert "already exists" in str(exc.value.code)
+    assert "Exported 4 transactions" in cli("export", str(target), "--force")
+
+
+def test_export_import_roundtrip(cli, tmp_path):
+    seed(cli)
+    target = tmp_path / "out.csv"
+    cli("export", str(target))
+    before = cli("list")
+    out = cli("import", str(target))
+    assert "Imported 0 transactions" in out      # everything is a duplicate
+    assert "Skipped 4 duplicates" in out
+    assert cli("list") == before

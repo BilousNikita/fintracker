@@ -300,6 +300,48 @@ def cmd_import(args):
               f"(use --allow-duplicates to import them anyway).")
 
 
+def cmd_export(args):
+    query = (
+        "SELECT t.date, t.amount, a.name AS account, c.name AS category, "
+        "c.type AS type, a.currency AS currency, t.note AS note "
+        "FROM transactions t "
+        "JOIN accounts a ON a.id = t.account_id "
+        "JOIN categories c ON c.id = t.category_id WHERE 1=1"
+    )
+    params = []
+    if args.month:
+        query += " AND substr(t.date, 1, 7) = ?"
+        params.append(args.month)
+    if args.category:
+        query += " AND c.name = ?"
+        params.append(args.category)
+    if args.account:
+        query += " AND a.name = ?"
+        params.append(args.account)
+    query += " ORDER BY t.date, t.id"
+
+    with connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    def write(f):
+        writer = csv.writer(f, lineterminator="\n")
+        writer.writerow(["date", "amount", "account", "category",
+                         "type", "currency", "note"])
+        for r in rows:
+            writer.writerow([r["date"], fmt_money(r["amount"]), r["account"],
+                             r["category"], r["type"], r["currency"], r["note"] or ""])
+
+    if args.file == "-":
+        write(sys.stdout)
+        return
+    path = Path(args.file)
+    if path.exists() and not args.force:
+        sys.exit(f"{path} already exists (use --force to overwrite)")
+    with path.open("w", newline="", encoding="utf-8") as f:
+        write(f)
+    print(f"Exported {len(rows)} transactions to {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Personal finance tracker")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -344,6 +386,15 @@ def main():
                           help="import rows even if identical ones already exist")
     p_import.set_defaults(func=cmd_import)
 
+
+    p_export = sub.add_parser("export", help="export transactions to a CSV file")
+    p_export.add_argument("file", help="output path, or - for stdout")
+    p_export.add_argument("-m", "--month", help="filter by month, e.g. 2026-11")
+    p_export.add_argument("-c", "--category")
+    p_export.add_argument("-a", "--account")
+    p_export.add_argument("--force", action="store_true",
+                          help="overwrite an existing file")
+    p_export.set_defaults(func=cmd_export)
 
     args = parser.parse_args()
     try:
