@@ -66,6 +66,18 @@ python tracker.py report
 python tracker.py report -m 2026-10
 ```
 
+### Budgets
+
+```bash
+python tracker.py budget set Food 300      # monthly limit for an expense category
+python tracker.py budget status            # current month
+python tracker.py budget status -m 2026-10
+python tracker.py budget remove Food
+```
+
+`add` prints a warning when an expense brings its category to 80% of the
+monthly limit, or past it.
+
 ### Delete a transaction
 
 ```bash
@@ -109,6 +121,7 @@ pass `--force`.
 - `accounts` (id, name, currency)
 - `categories` (id, name, type: income or expense)
 - `transactions` (id, date, amount, account_id, category_id, note)
+- `budgets` (category_id, monthly_limit)
 
 Amounts are stored as integer cents to avoid floating-point rounding errors.
 The sign of a transaction is determined by its category type.
@@ -129,8 +142,8 @@ fintracker/
 
 ## Roadmap
 
-- Tests with pytest
-- Budgets and category limits
+- `edit` command for existing transactions
+- Installable package with `pyproject.toml`
 
 ## Running tests
 

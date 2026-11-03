@@ -81,8 +81,12 @@ def cmd_add(args):
             "VALUES (?, ?, ?, ?, ?)",
             (day, amount, account_id, category_id, args.note),
         )
+        warning = (budget_warning(conn, category_id, day[:7], args.category)
+                   if args.type == "expense" else None)
     print(f"Added: {day} {args.type} {fmt_money(amount)} "
           f"[{args.account} / {args.category}]")
+    if warning:
+        print(warning)
 
 
 def cmd_list(args):
@@ -342,6 +346,95 @@ def cmd_export(args):
     print(f"Exported {len(rows)} transactions to {path}")
 
 
+WARN_PERCENT = 80
+
+
+def month_spent(conn, category_id, month):
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM transactions "
+        "WHERE category_id = ? AND substr(date, 1, 7) = ?",
+        (category_id, month),
+    ).fetchone()
+    return row[0]
+
+
+def budget_state(spent, limit):
+    if spent > limit:
+        return "OVER"
+    if spent * 100 >= limit * WARN_PERCENT:
+        return "WARNING"
+    return "OK"
+
+
+def budget_warning(conn, category_id, month, name):
+    """Return a warning string if the category budget is nearly used up."""
+    row = conn.execute(
+        "SELECT monthly_limit FROM budgets WHERE category_id = ?", (category_id,)
+    ).fetchone()
+    if not row:
+        return None
+    limit = row["monthly_limit"]
+    spent = month_spent(conn, category_id, month)
+    state = budget_state(spent, limit)
+    if state == "OK":
+        return None
+    verb = "exceeded" if state == "OVER" else f"at {spent * 100 // limit}%"
+    return (f"Warning: {name} budget {verb}: "
+            f"{fmt_money(spent)} of {fmt_money(limit)} for {month}")
+
+
+def cmd_budget_set(args):
+    limit = parse_amount(args.amount)
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id, type FROM categories WHERE name = ?", (args.category,)
+        ).fetchone()
+        if not row:
+            sys.exit(f"Category '{args.category}' not found")
+        if row["type"] != "expense":
+            sys.exit("Budgets can only be set for expense categories")
+        conn.execute(
+            "INSERT INTO budgets (category_id, monthly_limit) VALUES (?, ?) "
+            "ON CONFLICT(category_id) DO UPDATE SET monthly_limit = excluded.monthly_limit",
+            (row["id"], limit),
+        )
+    print(f"Budget for {args.category}: {fmt_money(limit)} per month")
+
+
+def cmd_budget_status(args):
+    month = args.month or date.today().strftime("%Y-%m")
+    with connect() as conn:
+        budgets = conn.execute(
+            "SELECT c.id, c.name, b.monthly_limit FROM budgets b "
+            "JOIN categories c ON c.id = b.category_id ORDER BY c.name"
+        ).fetchall()
+        if not budgets:
+            print("No budgets set. Use: budget set CATEGORY AMOUNT")
+            return
+        print(f"Budgets for {month}\n")
+        print(f"{'Category':<16} {'Limit':>10} {'Spent':>10} {'Left':>11} {'Used':>5}  Status")
+        for b in budgets:
+            limit = b["monthly_limit"]
+            spent = month_spent(conn, b["id"], month)
+            left = limit - spent
+            left_text = fmt_money(left) if left >= 0 else "-" + fmt_money(-left)
+            percent = spent * 100 // limit
+            print(f"{b['name']:<16} {fmt_money(limit):>10} {fmt_money(spent):>10} "
+                  f"{left_text:>11} {percent:>4}%  {budget_state(spent, limit)}")
+
+
+def cmd_budget_remove(args):
+    with connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM budgets WHERE category_id = "
+            "(SELECT id FROM categories WHERE name = ?)",
+            (args.category,),
+        )
+    if cur.rowcount == 0:
+        sys.exit(f"No budget set for '{args.category}'")
+    print(f"Budget for {args.category} removed")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Personal finance tracker")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -395,6 +488,22 @@ def main():
     p_export.add_argument("--force", action="store_true",
                           help="overwrite an existing file")
     p_export.set_defaults(func=cmd_export)
+
+    p_budget = sub.add_parser("budget", help="manage monthly category budgets")
+    budget_sub = p_budget.add_subparsers(dest="budget_command", required=True)
+
+    p_bset = budget_sub.add_parser("set", help="set a monthly limit for an expense category")
+    p_bset.add_argument("category")
+    p_bset.add_argument("amount", help="monthly limit, e.g. 300")
+    p_bset.set_defaults(func=cmd_budget_set)
+
+    p_bstatus = budget_sub.add_parser("status", help="show spending against budgets")
+    p_bstatus.add_argument("-m", "--month", help="YYYY-MM (default: current month)")
+    p_bstatus.set_defaults(func=cmd_budget_status)
+
+    p_bremove = budget_sub.add_parser("remove", help="remove a budget")
+    p_bremove.add_argument("category")
+    p_bremove.set_defaults(func=cmd_budget_remove)
 
     args = parser.parse_args()
     try:

@@ -342,3 +342,59 @@ def test_export_import_roundtrip(cli, tmp_path):
     assert "Imported 0 transactions" in out      # everything is a duplicate
     assert "Skipped 4 duplicates" in out
     assert cli("list") == before
+
+
+# ---------- budgets ----------
+
+def test_budget_set_and_status(cli):
+    seed(cli)
+    assert "Budget for Food: 100.00 per month" in cli("budget", "set", "Food", "100")
+    cli("budget", "set", "Transport", "40")
+    lines = cli("budget", "status", "-m", "2026-11").splitlines()
+
+    food = next(l for l in lines if l.startswith("Food"))
+    for part in ("100.00", "12.50", "87.50", "12%", "OK"):
+        assert part in food
+
+    transport = next(l for l in lines if l.startswith("Transport"))
+    for part in ("45.00", "-5.00", "112%", "OVER"):
+        assert part in transport
+
+
+def test_budget_warnings_on_add(cli):
+    cli("add", "10", "-a", "Cash", "-c", "Fun", "-d", "2026-11-01")
+    cli("budget", "set", "Fun", "100")
+
+    out = cli("add", "10", "-a", "Cash", "-c", "Fun", "-d", "2026-11-02")
+    assert "Warning" not in out                      # 20 of 100
+
+    out = cli("add", "65", "-a", "Cash", "-c", "Fun", "-d", "2026-11-03")
+    assert "Warning: Fun budget at 85%" in out       # 85 of 100
+
+    out = cli("add", "20", "-a", "Cash", "-c", "Fun", "-d", "2026-11-04")
+    assert "Warning: Fun budget exceeded: 105.00 of 100.00 for 2026-11" in out
+
+
+def test_budget_only_for_expense_categories(cli):
+    seed(cli)
+    with pytest.raises(SystemExit) as exc:
+        cli("budget", "set", "Salary", "100")
+    assert "expense" in str(exc.value.code)
+
+
+def test_budget_unknown_category(cli):
+    with pytest.raises(SystemExit) as exc:
+        cli("budget", "set", "Nope", "100")
+    assert "not found" in str(exc.value.code)
+
+
+def test_budget_update_and_remove(cli):
+    seed(cli)
+    cli("budget", "set", "Food", "100")
+    cli("budget", "set", "Food", "200")
+    assert "200.00" in cli("budget", "status", "-m", "2026-11")
+    assert "removed" in cli("budget", "remove", "Food")
+    assert "No budgets set" in cli("budget", "status")
+    with pytest.raises(SystemExit) as exc:
+        cli("budget", "remove", "Food")
+    assert "No budget set" in str(exc.value.code)

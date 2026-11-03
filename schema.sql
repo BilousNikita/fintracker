@@ -28,3 +28,7 @@ categories(id),
   note     TEXT
 );
 
+CREATE TABLE IF NOT EXISTS budgets (
+    category_id   INTEGER PRIMARY KEY REFERENCES categories(id),
+    monthly_limit INTEGER NOT NULL CHECK (monthly_limit > 0)   -- cents
+);
