@@ -90,7 +90,7 @@ date,amount,account,category,type,note
 ```
 
 If any row is invalid, nothing is imported and the offending lines are
-reported. Importing the same file twice creates duplicates.
+reported. Rows identical to existing transactions (same date, amount, account, category and note) are skipped, so re-importing a file is safe. Use `--allow-duplicates` to disable this.
 
 ## Data model
 
@@ -119,7 +119,6 @@ fintracker/
 
 - Tests with pytest
 - Budgets and category limits
-- Duplicate detection on import
 - Export to CSV
 
 ## Running tests

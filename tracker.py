@@ -206,6 +206,36 @@ def cmd_delete(args):
     print("Deleted.")
 
 
+def existing_counts(conn):
+    """Count stored transactions by (date, amount, account, category, note)."""
+    rows = conn.execute(
+        "SELECT t.date, t.amount, a.name, c.name, COALESCE(t.note, ''), COUNT(*) "
+        "FROM transactions t "
+        "JOIN accounts a ON a.id = t.account_id "
+        "JOIN categories c ON c.id = t.category_id "
+        "GROUP BY t.date, t.amount, a.name, c.name, COALESCE(t.note, '')"
+    ).fetchall()
+    return {tuple(r)[:5]: r[5] for r in rows}
+
+
+def split_duplicates(records, existing):
+    """Split records into (new, skipped).
+
+    Identical rows are matched one-to-one with what is already stored, so
+    legitimate repeats (two identical coffees in a day) are kept.
+    """
+    remaining = dict(existing)
+    new, skipped = [], []
+    for r in records:
+        key = (r["date"], r["amount"], r["account"], r["category"], r["note"] or "")
+        if remaining.get(key, 0) > 0:
+            remaining[key] -= 1
+            skipped.append(r)
+        else:
+            new.append(r)
+    return new, skipped
+
+
 def cmd_import(args):
     path = Path(args.file)
     if not path.is_file():
@@ -243,12 +273,20 @@ def cmd_import(args):
         for e in errors:
             print(f"  {e}")
         sys.exit(1)
-    if args.dry_run:
-        print(f"Dry run OK: {len(records)} transactions would be imported.")
-        return
 
     with connect() as conn:  # one transaction: all rows or none
-        for r in records:
+        if args.allow_duplicates:
+            new, skipped = records, []
+        else:
+            new, skipped = split_duplicates(records, existing_counts(conn))
+
+        if args.dry_run:
+            print(f"Dry run OK: {len(new)} transactions would be imported.")
+            if skipped:
+                print(f"{len(skipped)} duplicates would be skipped.")
+            return
+
+        for r in new:
             account_id = get_or_create_account(conn, r["account"], r["currency"])
             category_id = get_or_create_category(conn, r["category"], r["type"])
             conn.execute(
@@ -256,7 +294,10 @@ def cmd_import(args):
                 "VALUES (?, ?, ?, ?, ?)",
                 (r["date"], r["amount"], account_id, category_id, r["note"]),
             )
-    print(f"Imported {len(records)} transactions from {path.name}.")
+    print(f"Imported {len(new)} transactions from {path.name}.")
+    if skipped:
+        print(f"Skipped {len(skipped)} duplicates "
+              f"(use --allow-duplicates to import them anyway).")
 
 
 def main():
@@ -299,6 +340,8 @@ def main():
     p_import.add_argument("file")
     p_import.add_argument("--dry-run", action="store_true",
                           help="validate the file without saving anything")
+    p_import.add_argument("--allow-duplicates", action="store_true",
+                          help="import rows even if identical ones already exist")
     p_import.set_defaults(func=cmd_import)
 
 

@@ -251,3 +251,56 @@ def test_import_file_not_found(cli, tmp_path):
     with pytest.raises(SystemExit) as exc:
         cli("import", str(tmp_path / "nope.csv"))
     assert "File not found" in str(exc.value.code)
+
+
+# ---------- duplicate protection ----------
+
+def test_import_skips_duplicates(cli, tmp_path):
+    path = write_csv(tmp_path, GOOD_CSV)
+    cli("import", path)
+    out = cli("import", path)
+    assert "Imported 0 transactions" in out
+    assert "Skipped 3 duplicates" in out
+    assert "Total: +2450.10" in cli("list")   # unchanged
+
+
+def test_import_partial_overlap(cli, tmp_path):
+    cli("import", write_csv(tmp_path, GOOD_CSV, "a.csv"))
+    more = GOOD_CSV + "2026-11-05,7,Cash,Food,expense,snack\n"
+    out = cli("import", write_csv(tmp_path, more, "b.csv"))
+    assert "Imported 1 transactions" in out
+    assert "Skipped 3 duplicates" in out
+
+
+def test_import_keeps_identical_rows_within_one_file(cli, tmp_path):
+    two = (
+        "date,amount,account,category\n"
+        "2026-11-01,3,Cash,Coffee\n"
+        "2026-11-01,3,Cash,Coffee\n"
+    )
+    path = write_csv(tmp_path, two)
+    assert "Imported 2 transactions" in cli("import", path)
+    assert "Imported 0 transactions" in cli("import", path)   # re-import is safe
+
+
+def test_import_matches_manually_added(cli, tmp_path):
+    cli("add", "34.90", "-a", "Cash", "-c", "Food", "-d", "2026-11-02", "-n", "groceries")
+    out = cli("import", write_csv(tmp_path, GOOD_CSV))
+    assert "Imported 2 transactions" in out
+    assert "Skipped 1 duplicates" in out
+
+
+def test_import_allow_duplicates(cli, tmp_path):
+    path = write_csv(tmp_path, GOOD_CSV)
+    cli("import", path)
+    out = cli("import", path, "--allow-duplicates")
+    assert "Imported 3 transactions" in out
+    assert "Skipped" not in out
+
+
+def test_dry_run_reports_duplicates(cli, tmp_path):
+    path = write_csv(tmp_path, GOOD_CSV)
+    cli("import", path)
+    out = cli("import", path, "--dry-run")
+    assert "Dry run OK: 0 transactions" in out
+    assert "3 duplicates would be skipped" in out
